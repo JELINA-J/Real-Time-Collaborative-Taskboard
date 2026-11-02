@@ -135,5 +135,30 @@ router.get("/:id/boards", async (req, res) => {
     res.status(500).json({ error: "Something went wrong" });
   }
 });
+// GET /api/workspaces/:id/members  -> workspace info + member list (any member can view)
+router.get("/:id/members", async (req, res) => {
+  const workspaceId = Number(req.params.id);
+  if (!Number.isInteger(workspaceId)) {
+    return res.status(400).json({ error: "Invalid workspace id" });
+  }
 
+  try {
+    const role = await getRole(req.userId, workspaceId);
+    if (!role) return res.status(403).json({ error: "You are not in this workspace" });
+
+    const ws = await pool.query("SELECT id, name FROM workspaces WHERE id = $1", [workspaceId]);
+    const members = await pool.query(
+      `SELECT u.id, u.name, u.email, m.role
+       FROM members m
+       JOIN users u ON u.id = m.user_id
+       WHERE m.workspace_id = $1
+       ORDER BY u.name`,
+      [workspaceId]
+    );
+    res.json({ workspace: { ...ws.rows[0], role }, members: members.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Something went wrong" });
+  }
+});
 module.exports = router;

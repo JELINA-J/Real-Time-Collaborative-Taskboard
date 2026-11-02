@@ -2,7 +2,8 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 import Auth from "./pages/Auth";
 import Home from "./pages/Home";
-
+import Workspace from "./pages/Workspace";
+import Board from "./pages/Board";
 // Wrapper: show the page only if logged in, otherwise go to /login
 function Protected({ children }) {
   const { user, loading } = useAuth();
@@ -16,6 +17,8 @@ export default function App() {
       <Route path="/login" element={<Auth mode="login" />} />
       <Route path="/signup" element={<Auth mode="signup" />} />
       <Route path="/" element={<Protected><Home /></Protected>} />
+      <Route path="/workspaces/:id" element={<Protected><Workspace /></Protected>} />
+<Route path="/boards/:id" element={<Protected><Board /></Protected>} />
     </Routes>
   );
 }
