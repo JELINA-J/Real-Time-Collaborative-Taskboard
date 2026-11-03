@@ -48,30 +48,72 @@ router.post("/", async (req, res) => {
 });
 
 // PATCH /api/tasks/:id
+// PATCH /api/tasks/:id  -> edit a task (admin, assignee, or anyone if unassigned)
 router.patch("/:id", async (req, res) => {
   const taskId = Number(req.params.id);
-  const { title, description, dueDate, assigneeId } = req.body;
+  if (!Number.isInteger(taskId)) {
+    return res.status(400).json({ error: "Invalid task id" });
+  }
 
   try {
     const access = await getTaskAccess(req.userId, taskId);
     if (!access) return res.status(404).json({ error: "Task not found" });
+    const isAdmin = access.role === "admin";
 
-    if (assigneeId) {
-      const assigneeRole = await getRole(assigneeId, access.workspace_id);
-      if (!assigneeRole) {
-        return res.status(400).json({ error: "Assignee is not in this workspace" });
+    // Who owns the task right now?
+    const current = await pool.query("SELECT assignee_id FROM tasks WHERE id = $1", [taskId]);
+    const currentAssignee = current.rows[0].assignee_id;
+
+    // Rule 1: only admin, the assignee, or anyone (if nobody owns it) may edit
+    const canEdit = isAdmin || currentAssignee === null || currentAssignee === req.userId;
+    if (!canEdit) {
+      return res.status(403).json({ error: "Only admins or the assignee can edit this task" });
+    }
+
+    // Build the UPDATE only from the fields that were actually sent
+    const body = req.body;
+    const fields = [];
+    const values = [];
+    const set = (column, value) => {
+      values.push(value);
+      fields.push(`${column} = $${values.length}`);
+    };
+
+    if ("title" in body) {
+      if (!String(body.title).trim()) {
+        return res.status(400).json({ error: "Title cannot be empty" });
+      }
+      set("title", String(body.title).trim());
+    }
+    if ("description" in body) set("description", body.description || null);
+    if ("dueDate" in body) set("due_date", body.dueDate || null);
+
+    // Rule 2: changing the assignee
+    if ("assigneeId" in body) {
+      const newAssignee = body.assigneeId ? Number(body.assigneeId) : null;
+      if (newAssignee !== currentAssignee) {
+        const claiming = currentAssignee === null && newAssignee === req.userId;
+        if (!isAdmin && !claiming) {
+          return res.status(403).json({ error: "Only admins can change the assignee" });
+        }
+        if (newAssignee !== null) {
+          const role = await getRole(newAssignee, access.workspace_id);
+          if (!role) {
+            return res.status(400).json({ error: "Assignee is not in this workspace" });
+          }
+        }
+        set("assignee_id", newAssignee);
       }
     }
 
+    if (fields.length === 0) {
+      return res.status(400).json({ error: "Nothing to update" });
+    }
+
+    values.push(taskId);
     const result = await pool.query(
-      `UPDATE tasks SET
-         title = COALESCE($1, title),
-         description = COALESCE($2, description),
-         due_date = COALESCE($3, due_date),
-         assignee_id = COALESCE($4, assignee_id)
-       WHERE id = $5
-       RETURNING *`,
-      [title || null, description || null, dueDate || null, assigneeId || null, taskId]
+      `UPDATE tasks SET ${fields.join(", ")} WHERE id = $${values.length} RETURNING *`,
+      values
     );
 
     emitToBoard(access.board_id, "task:updated", { task: result.rows[0] });
@@ -163,9 +205,11 @@ router.delete("/:id", async (req, res) => {
 });
 
 // POST /api/tasks/:id/comments
+// POST /api/tasks/:id/comments
 router.post("/:id/comments", async (req, res) => {
   const taskId = Number(req.params.id);
   const { text } = req.body;
+  if (!Number.isInteger(taskId)) return res.status(400).json({ error: "Invalid task id" });
   if (!text) return res.status(400).json({ error: "Comment text is required" });
 
   try {
@@ -190,6 +234,8 @@ router.post("/:id/comments", async (req, res) => {
 // GET /api/tasks/:id/comments
 router.get("/:id/comments", async (req, res) => {
   const taskId = Number(req.params.id);
+  if (!Number.isInteger(taskId)) return res.status(400).json({ error: "Invalid task id" });
+
   try {
     const access = await getTaskAccess(req.userId, taskId);
     if (!access) return res.status(404).json({ error: "Task not found" });

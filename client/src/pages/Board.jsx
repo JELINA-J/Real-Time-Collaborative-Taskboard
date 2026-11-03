@@ -6,7 +6,7 @@ import { api, API_URL } from "../api";
 import Topbar from "../components/Topbar";
 import TaskModal from "../components/TaskModal";
 import { toShortDate } from "../dates";
-
+import { useAuth } from "../AuthContext";
 // Small pure functions: take the columns, return new columns.
 // Each one is safe to run twice with the same data.
 const withTaskAdded = (cols, task) =>
@@ -35,6 +35,7 @@ const withTaskMoved = (cols, task) => {
 };
 
 export default function Board() {
+  const { user } = useAuth();
   const { id } = useParams();
   const [board, setBoard] = useState(null);
   const [columns, setColumns] = useState([]);
@@ -86,8 +87,18 @@ export default function Board() {
     socket.on("task:updated", ({ task }) => setColumns((cols) => withTaskReplaced(cols, task)));
     socket.on("task:moved", ({ task }) => setColumns((cols) => withTaskMoved(cols, task)));
     socket.on("task:deleted", ({ taskId }) => setColumns((cols) => withTaskRemoved(cols, taskId)));
-    socket.on("comment:added", (data) => setLiveComment(data));
-
+    socket.on("comment:added", (data) => {
+      setLiveComment(data); // for an open task panel
+      // add 1 to that task's count on the board
+      setColumns((cols) =>
+        cols.map((c) => ({
+          ...c,
+          tasks: c.tasks.map((t) =>
+            t.id === data.taskId ? { ...t, comment_count: (t.comment_count || 0) + 1 } : t
+          ),
+        }))
+      );
+    });
     return () => socket.disconnect(); // cleanup when leaving the page
   }, [id, loadBoard]);
 
@@ -195,6 +206,7 @@ export default function Board() {
                             <div>{t.title}</div>
                             <div className="task-meta">
                               <span>{t.due_date ? `📅 ${toShortDate(t.due_date)}` : ""}</span>
+                              <span>{t.comment_count > 0 ? `💬 ${t.comment_count}` : ""}</span>
                               <span>{t.assignee_id ? `👤 ${memberName(t.assignee_id) || ""}` : ""}</span>
                             </div>
                           </div>
@@ -223,6 +235,7 @@ export default function Board() {
           key={openTask.id}
           task={openTask}
           members={members}
+          currentUserId={user.id}
           isAdmin={board.role === "admin"}
           liveComment={liveComment}
           onClose={() => setOpenTaskId(null)}

@@ -43,3 +43,5 @@ button:disabled { opacity: .6; cursor: default; }
 .avatar { width: 30px; height: 30px; border-radius: 50%; background: #0052cc; color: white; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; }
 .live { color: #00875a; font-size: 13px; margin-right: 6px; }
 .offline { color: #c9372c; font-size: 13px; margin-right: 6px; }
+
+input:disabled, textarea:disabled, select:disabled { background: #f4f5f7; color: #6b778c; cursor: not-allowed; }

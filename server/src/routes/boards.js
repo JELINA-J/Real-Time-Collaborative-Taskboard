@@ -25,8 +25,9 @@ router.get("/:boardId", async (req, res) => {
       "SELECT id, name, position FROM columns WHERE board_id = $1 ORDER BY position",
       [boardId]
     );
-    const tasks = await pool.query(
-      `SELECT t.id, t.title, t.description, t.due_date, t.position, t.column_id, t.assignee_id
+       const tasks = await pool.query(
+      `SELECT t.id, t.title, t.description, t.due_date, t.position, t.column_id, t.assignee_id,
+              (SELECT COUNT(*) FROM comments cm WHERE cm.task_id = t.id)::int AS comment_count
        FROM tasks t
        JOIN columns c ON c.id = t.column_id
        WHERE c.board_id = $1
