@@ -6,6 +6,16 @@ const { emitToBoard } = require("../../socket");
 
 const router = express.Router();
 router.use(requireAuth);
+// Gives tasks in a column the positions 0, 1, 2... in the order of the ids array
+async function renumber(client, columnId, ids) {
+  if (ids.length === 0) return;
+  await client.query(
+    `UPDATE tasks t SET column_id = $1, position = v.pos - 1
+     FROM unnest($2::int[]) WITH ORDINALITY AS v(id, pos)
+     WHERE t.id = v.id`,
+    [columnId, ids]
+  );
+}
 
 // POST /api/tasks
 router.post("/", async (req, res) => {
@@ -72,12 +82,14 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
-// PATCH /api/tasks/:id/move
+// PATCH /api/tasks/:id/move  -> move to another column and/or position
 router.patch("/:id/move", async (req, res) => {
   const taskId = Number(req.params.id);
-  const { columnId, position } = req.body;
-  if (columnId === undefined || position === undefined) {
-    return res.status(400).json({ error: "columnId and position are required" });
+  const columnId = Number(req.body.columnId);
+  const position = Number(req.body.position);
+
+  if (![taskId, columnId, position].every(Number.isInteger) || position < 0) {
+    return res.status(400).json({ error: "Valid task id, columnId and position are required" });
   }
 
   const client = await pool.connect();
@@ -91,21 +103,34 @@ router.patch("/:id/move", async (req, res) => {
       return res.status(400).json({ error: "Cannot move task to another board" });
     }
 
-    // Remember where it came from, so other users' screens can update both columns
     const old = await pool.query("SELECT column_id FROM tasks WHERE id = $1", [taskId]);
     const fromColumnId = old.rows[0].column_id;
 
     await client.query("BEGIN");
-    await client.query(
-      "UPDATE tasks SET position = position + 1 WHERE column_id = $1 AND position >= $2 AND id <> $3",
-      [columnId, position, taskId]
+
+    // 1. Tasks already in the destination column, without the moved one
+    const dest = await client.query(
+      "SELECT id FROM tasks WHERE column_id = $1 AND id <> $2 ORDER BY position, id",
+      [columnId, taskId]
     );
-    const result = await client.query(
-      "UPDATE tasks SET column_id = $1, position = $2 WHERE id = $3 RETURNING *",
-      [columnId, position, taskId]
-    );
+    const ids = dest.rows.map((r) => r.id);
+
+    // 2. Insert the moved task at the wanted index, then renumber the column
+    ids.splice(Math.min(position, ids.length), 0, taskId);
+    await renumber(client, columnId, ids);
+
+    // 3. If it left another column, close the gap there too
+    if (fromColumnId !== columnId) {
+      const src = await client.query(
+        "SELECT id FROM tasks WHERE column_id = $1 AND id <> $2 ORDER BY position, id",
+        [fromColumnId, taskId]
+      );
+      await renumber(client, fromColumnId, src.rows.map((r) => r.id));
+    }
+
     await client.query("COMMIT");
 
+    const result = await pool.query("SELECT * FROM tasks WHERE id = $1", [taskId]);
     emitToBoard(taskAccess.board_id, "task:moved", { task: result.rows[0], fromColumnId });
     res.json({ task: result.rows[0] });
   } catch (err) {

@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { toInputDate } from "../dates";
 
-export default function TaskModal({ task, members, isAdmin, onClose, onUpdated, onDeleted }) {
-  // Local copies of the fields, so typing doesn't change the board until we save
+export default function TaskModal({ task, members, isAdmin, liveComment, onClose, onUpdated, onDeleted }) {  // Local copies of the fields, so typing doesn't change the board until we save
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description || "");
   const [dueDate, setDueDate] = useState(toInputDate(task.due_date));
@@ -14,11 +13,14 @@ export default function TaskModal({ task, members, isAdmin, onClose, onUpdated, 
   const [saving, setSaving] = useState(false);
 
   // Load this task's comments when the panel opens
+    // A comment arrived live from someone else (or from ourselves): add it once
   useEffect(() => {
-    api(`/api/tasks/${task.id}/comments`)
-      .then((data) => setComments(data.comments))
-      .catch((err) => setError(err.message));
-  }, [task.id]);
+    if (liveComment && liveComment.taskId === task.id) {
+      setComments((prev) =>
+        prev.some((c) => c.id === liveComment.comment.id) ? prev : [...prev, liveComment.comment]
+      );
+    }
+  }, [liveComment, task.id]);
 
   async function save() {
     if (!title.trim()) return setError("Title cannot be empty");
@@ -51,8 +53,9 @@ export default function TaskModal({ task, members, isAdmin, onClose, onUpdated, 
         method: "POST",
         body: { text: commentText },
       });
-      setComments([...comments, data.comment]);
-      setCommentText("");
+            setComments((prev) =>
+        prev.some((c) => c.id === data.comment.id) ? prev : [...prev, data.comment]
+      );
     } catch (err) {
       setError(err.message);
     }
