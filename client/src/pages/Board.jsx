@@ -5,7 +5,7 @@ import { io } from "socket.io-client";
 import { api, API_URL } from "../api";
 import Topbar from "../components/Topbar";
 import TaskModal from "../components/TaskModal";
-import { toShortDate } from "../dates";
+import { toShortDate, dueStatus } from "../dates";
 import { useAuth } from "../AuthContext";
 // Small pure functions: take the columns, return new columns.
 // Each one is safe to run twice with the same data.
@@ -148,6 +148,8 @@ export default function Board() {
   }
 
   const memberName = (userId) => members.find((m) => m.id === userId)?.name;
+    // Tasks in the last column count as finished, so they are never shown as overdue
+  const doneColumnId = columns.length ? columns[columns.length - 1].id : null;
   const openTask = columns.flatMap((c) => c.tasks).find((t) => t.id === openTaskId);
 
   if (loading) return <><Topbar /><div className="page">Loading...</div></>;
@@ -203,17 +205,32 @@ export default function Board() {
                             }}
                             onClick={() => setOpenTaskId(t.id)}
                           >
-                            <div>{t.title}</div>
+                            
+                            <div className="task-title">{t.title}</div>
                             <div className="task-meta">
-                              <span>{t.due_date ? `📅 ${toShortDate(t.due_date)}` : ""}</span>
-                              <span>{t.comment_count > 0 ? `💬 ${t.comment_count}` : ""}</span>
-                              <span>{t.assignee_id ? `👤 ${memberName(t.assignee_id) || ""}` : ""}</span>
+                              <div className="chips">
+                                {t.due_date && (
+                                  <span className={`chip ${col.id === doneColumnId ? "" : dueStatus(t.due_date)}`}>
+                                    📅 {toShortDate(t.due_date)}
+                                  </span>
+                                )}
+                                {t.comment_count > 0 && <span className="chip">💬 {t.comment_count}</span>}
+                              </div>
+                              {t.assignee_id && (
+                                <span className="avatar-sm" title={memberName(t.assignee_id) || ""}>
+                                  {(memberName(t.assignee_id) || "?")[0].toUpperCase()}
+                                </span>
+                              )}
                             </div>
                           </div>
                         )}
                       </Draggable>
                     ))}
+                      {col.tasks.length === 0 && !snapshot.isDraggingOver && (
+                      <div className="empty-col">No tasks yet</div>
+                    )}
                     {provided.placeholder}
+                    
                   </div>
                 )}
               </Droppable>

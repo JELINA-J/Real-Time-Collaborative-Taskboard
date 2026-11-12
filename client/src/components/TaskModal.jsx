@@ -93,7 +93,7 @@ export default function TaskModal({ task, members, isAdmin, currentUserId, liveC
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="row">
           <h2 style={{ margin: 0 }}>Task details</h2>
-          <button onClick={onClose}>✕</button>
+                    <button className="icon-btn" onClick={onClose}>✕</button>
         </div>
 
         {!canEdit && (
